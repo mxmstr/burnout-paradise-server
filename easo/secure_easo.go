@@ -1,4 +1,4 @@
-package bpserver
+package easo
 
 import (
 	"crypto/md5" //nolint:gosec // Protocol compatibility with DirtySDK 6.4.
@@ -7,8 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-
-	"github.com/local/reorigin-burnout-paradise/easo"
 )
 
 const secureFrameMACSize = 8
@@ -23,7 +21,7 @@ type secureEASO struct {
 	writeCipher *rc4.Cipher
 }
 
-func newSecureEASO(stream io.ReadWriter, readKey, writeKey []byte) (*secureEASO, error) {
+func NewSecureEASO(stream io.ReadWriter, readKey, writeKey []byte) (*secureEASO, error) {
 	readCipher, err := rc4.NewCipher(readKey)
 	if err != nil {
 		return nil, fmt.Errorf("create read cipher: %w", err)
@@ -35,20 +33,20 @@ func newSecureEASO(stream io.ReadWriter, readKey, writeKey []byte) (*secureEASO,
 	return &secureEASO{stream: stream, readCipher: readCipher, writeCipher: writeCipher}, nil
 }
 
-func (s *secureEASO) Read() (easo.Frame, error) {
-	header := make([]byte, easo.HeaderSize)
+func (s *secureEASO) Read() (Frame, error) {
+	header := make([]byte, HeaderSize)
 	if _, err := io.ReadFull(s.stream, header); err != nil {
-		return easo.Frame{}, err
+		return Frame{}, err
 	}
 	s.readCipher.XORKeyStream(header, header)
 
 	wireLength := binary.BigEndian.Uint32(header[8:12])
-	if wireLength < easo.HeaderSize+secureFrameMACSize || wireLength > easo.MaxFrameSize+secureFrameMACSize {
-		return easo.Frame{}, fmt.Errorf("%w: secure length %d", easo.ErrInvalidFrame, wireLength)
+	if wireLength < HeaderSize+secureFrameMACSize || wireLength > MaxFrameSize+secureFrameMACSize {
+		return Frame{}, fmt.Errorf("%w: secure length %d", ErrInvalidFrame, wireLength)
 	}
-	body := make([]byte, int(wireLength)-easo.HeaderSize)
+	body := make([]byte, int(wireLength)-HeaderSize)
 	if _, err := io.ReadFull(s.stream, body); err != nil {
-		return easo.Frame{}, err
+		return Frame{}, err
 	}
 	s.readCipher.XORKeyStream(body, body)
 
@@ -56,29 +54,29 @@ func (s *secureEASO) Read() (easo.Frame, error) {
 	plainLength := len(packet) - secureFrameMACSize
 	digest := md5.Sum(packet[:plainLength]) //nolint:gosec // Required by RC4+MD5-V2.
 	if subtle.ConstantTimeCompare(packet[plainLength:], digest[:secureFrameMACSize]) != 1 {
-		return easo.Frame{}, fmt.Errorf("%w: secure MD5 mismatch", easo.ErrInvalidFrame)
+		return Frame{}, fmt.Errorf("%w: secure MD5 mismatch", ErrInvalidFrame)
 	}
-	return easo.Frame{
+	return Frame{
 		Type:    string(packet[0:4]),
 		ID:      binary.BigEndian.Uint32(packet[4:8]),
-		Payload: append([]byte(nil), packet[easo.HeaderSize:plainLength]...),
+		Payload: append([]byte(nil), packet[HeaderSize:plainLength]...),
 	}, nil
 }
 
-func (s *secureEASO) Write(frame easo.Frame) error {
+func (s *secureEASO) Write(frame Frame) error {
 	if len(frame.Type) != 4 {
-		return fmt.Errorf("%w: type must contain four bytes", easo.ErrInvalidFrame)
+		return fmt.Errorf("%w: type must contain four bytes", ErrInvalidFrame)
 	}
-	wireLength := easo.HeaderSize + len(frame.Payload) + secureFrameMACSize
-	if wireLength > easo.MaxFrameSize+secureFrameMACSize {
-		return fmt.Errorf("%w: payload too large", easo.ErrInvalidFrame)
+	wireLength := HeaderSize + len(frame.Payload) + secureFrameMACSize
+	if wireLength > MaxFrameSize+secureFrameMACSize {
+		return fmt.Errorf("%w: payload too large", ErrInvalidFrame)
 	}
 
 	packet := make([]byte, wireLength)
 	copy(packet[0:4], frame.Type)
 	binary.BigEndian.PutUint32(packet[4:8], frame.ID)
 	binary.BigEndian.PutUint32(packet[8:12], uint32(wireLength))
-	copy(packet[easo.HeaderSize:], frame.Payload)
+	copy(packet[HeaderSize:], frame.Payload)
 	digest := md5.Sum(packet[:wireLength-secureFrameMACSize]) //nolint:gosec // Required by RC4+MD5-V2.
 	copy(packet[wireLength-secureFrameMACSize:], digest[:secureFrameMACSize])
 	s.writeCipher.XORKeyStream(packet, packet)

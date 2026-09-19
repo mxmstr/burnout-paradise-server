@@ -11,10 +11,11 @@ import (
 	"syscall"
 
 	"github.com/local/reorigin-burnout-paradise/bpserver"
-	"github.com/local/reorigin-hotpursuit/legacytls"
+	"github.com/local/reorigin-burnout-paradise/legacytls"
 )
 
 func main() {
+
 	directoryAddr := flag.String("directory", "127.0.0.1:21841", "EASO directory listener")
 	gameAddr := flag.String("game", "127.0.0.1:21842", "redirected EASO service listener")
 	advertiseAddr := flag.String("advertise", "127.0.0.1", "IP returned in the @dir response")
@@ -25,12 +26,17 @@ func main() {
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
 	if (*certFile == "") != (*keyFile == "") {
+
 		logger.Error("-cert and -key must be supplied together")
 		os.Exit(2)
+
 	}
+
 	var tlsConfig *legacytls.Config
 	var err error
+
 	if *certFile != "" {
 		tlsConfig, err = legacytls.LoadKeyPair(*certFile, *keyFile)
 	} else {
@@ -44,6 +50,7 @@ func main() {
 		logger.Error("DirtySDK 6.4 certificate validation failed", "error", err)
 		os.Exit(2)
 	}
+
 	tlsConfig.Trace = func(event string, attrs ...any) {
 		logger.Info("ProtoSSL "+event, attrs...)
 	}
@@ -53,11 +60,13 @@ func main() {
 		logger.Error("invalid session", "value", *sessionValue, "error", err)
 		os.Exit(2)
 	}
+
 	_, gamePortText, err := net.SplitHostPort(*gameAddr)
 	if err != nil {
 		logger.Error("invalid game listener", "address", *gameAddr, "error", err)
 		os.Exit(2)
 	}
+
 	gamePort, err := strconv.Atoi(gamePortText)
 	if err != nil {
 		logger.Error("invalid game port", "port", gamePortText, "error", err)
@@ -87,22 +96,25 @@ func main() {
 		os.Exit(1)
 	}
 	defer directoryTCP.Close()
+
 	gameTCP, err := net.Listen("tcp4", *gameAddr)
 	if err != nil {
 		logger.Error("game listen failed", "error", err)
 		os.Exit(1)
 	}
 	defer gameTCP.Close()
+
+	game := gameTCP
 	directory := legacytls.NewListener(directoryTCP, tlsConfig)
 	// The directory endpoint is SSLv3, but its @dir response redirects the
 	// retail client to a plaintext EASO service socket. Wrapping this listener
 	// in TLS makes ordinary frame types such as ?tic, skey, news, and addr look
 	// like invalid TLS record versions (for example "ke" == 0x6b65).
-	game := gameTCP
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	logger.Info("Burnout Paradise EASO handshake server",
+
+	logger.Info("Burnout Paradise EASO server",
 		"build", "2026-09-07-presence-fix",
 		"directory", directory.Addr(), "game", game.Addr(), "advertise", *advertiseAddr,
 		"directory_transport", "SSL 3.0/TLS 1.0 RSA/RC4",
@@ -115,4 +127,5 @@ func main() {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+
 }

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/local/reorigin-burnout-paradise/easo"
-	"github.com/local/reorigin-hotpursuit/legacytls"
+	"github.com/local/reorigin-burnout-paradise/legacytls"
 )
 
 func TestCapturedPCSSL3ClientHelloIsAccepted(t *testing.T) {
@@ -134,7 +134,7 @@ func TestServiceTicketEnablesSecureFrames(t *testing.T) {
 	if err := easo.Write(clientConn, easo.Frame{Type: "?tic", Payload: serverChallenge[32:]}); err != nil {
 		t.Fatal(err)
 	}
-	clientSecure, err := newSecureEASO(clientConn, serverChallenge[16:32], serverChallenge[:16])
+	clientSecure, err := easo.NewSecureEASO(clientConn, serverChallenge[16:32], serverChallenge[:16])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestServiceTicketEnablesSecureFrames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantGame := localGameRecord(gameCreateRequest, "asdf", "127.0.0.1", "127.0.0.1")
+	wantGame := getLocalGameRecord(gameCreateRequest, "asdf", "127.0.0.1", "127.0.0.1")
 	if !bytes.Contains(wantGame, []byte("GAMEPORT=1024\n")) {
 		t.Fatalf("game notification does not advertise retail peer port 1024: %q", wantGame)
 	}
@@ -393,7 +393,7 @@ func TestServiceTicketEnablesSecureFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	mergedGameRequest := mergeLocalGameRequest(gameCreateRequest, gameUpdateRequest)
-	wantGameChange := localGameRecord(mergedGameRequest, "asdf", "127.0.0.1", "127.0.0.1")
+	wantGameChange := getLocalGameRecord(mergedGameRequest, "asdf", "127.0.0.1", "127.0.0.1")
 	if gameChange.Type != "+gam" || gameChange.ID != 0 || !bytes.Equal(gameChange.Payload, wantGameChange) {
 		t.Fatalf("game-change notification = type %q, id %d, payload %q", gameChange.Type, gameChange.ID, gameChange.Payload)
 	}
@@ -418,7 +418,7 @@ func TestServiceTicketEnablesSecureFrames(t *testing.T) {
 	// This test's pre-start flags are 64: starting must add 0x80000,
 	// and update the application game record before the play notification.
 	startedRequest := mergeLocalGameRequest(mergedGameRequest, []byte("SYSFLAGS=524352\n\x00"))
-	wantGameStart := localGameRecord(startedRequest, "asdf", "127.0.0.1", "127.0.0.1")
+	wantGameStart := getLocalGameRecord(startedRequest, "asdf", "127.0.0.1", "127.0.0.1")
 	for _, kind := range []string{"+gam", "+mgm", "+ses"} {
 		gameStartEvent, err := clientSecure.Read()
 		if err != nil {
@@ -454,7 +454,7 @@ func TestServiceTicketEnablesSecureFrames(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if ended.Type != kind || payloadField(ended.Payload, "SYSFLAGS") != "64" {
+				if ended.Type != kind || getPayloadField(ended.Payload, "SYSFLAGS") != "64" {
 					t.Fatalf("post-race event = %#v, want %s with SYSFLAGS=64", ended, kind)
 				}
 			}
@@ -502,7 +502,7 @@ func TestServiceTicketEnablesSecureFrames(t *testing.T) {
 func TestLocalRoadRuleUploadRecordAccepts128BitMaskAndRejectsMalformedEntries(t *testing.T) {
 	request := []byte("R=0,1,64,127,128,3,bad,5\nV=10,20,30,40,50,nope,70,80\nC=car0,car1,car64,car127,car128,car3,,car5\n\x00")
 	want := []byte("VALID=0,1,64,127,5\n\x00")
-	if got := localRoadRuleUploadRecord(request); !bytes.Equal(got, want) {
+	if got := getLocalRoadRuleUploadRecord(request); !bytes.Equal(got, want) {
 		t.Fatalf("road-rule upload response = %q, want %q", got, want)
 	}
 }
@@ -533,7 +533,7 @@ func TestLocalMultiplayerGameRecordContainsBothPlayers(t *testing.T) {
 		userParams:  "guest-params",
 		userFlags:   "4",
 	}
-	record := localMultiplayerGameRecord(request, host, []*serviceClient{host, guest}, "127.0.0.1")
+	record := getLocalMultiplayerGameRecord(request, host, []*serviceClient{host, guest}, "127.0.0.1")
 	for _, field := range []string{
 		"COUNT=2\n",
 		"OPID0=1\n",
@@ -662,18 +662,18 @@ func TestStartLocalLobbySetsAndPersistsStartedFlag(t *testing.T) {
 			if initial == "" || initial == "invalid" {
 				wantFlags = "524288"
 			}
-			if got := payloadField(game, "SYSFLAGS"); got != wantFlags {
+			if got := getPayloadField(game, "SYSFLAGS"); got != wantFlags {
 				t.Fatalf("SYSFLAGS=%s, want %s", got, wantFlags)
 			}
-			if payloadField(server.lobby.request, "SYSFLAGS") != wantFlags || payloadField(game, "PARAMS") != "event" {
+			if getPayloadField(server.lobby.request, "SYSFLAGS") != wantFlags || getPayloadField(game, "PARAMS") != "event" {
 				t.Fatal("start did not persist flags or changed event parameters")
 			}
-			if payloadField(game, "OPPARAM0") != "host-ready" || payloadField(game, "OPPARAM1") != "guest-ready" {
+			if getPayloadField(game, "OPPARAM0") != "host-ready" || getPayloadField(game, "OPPARAM1") != "guest-ready" {
 				t.Fatal("start lost the players' readiness parameters")
 			}
 			// A subsequent player update must retain the server's started bit.
 			after, _, _, _ := server.updateLocalLobby(guest, []byte("USERFLAGS=1\n\x00"))
-			if payloadField(after, "SYSFLAGS") != wantFlags {
+			if getPayloadField(after, "SYSFLAGS") != wantFlags {
 				t.Fatal("player update lost the started flag")
 			}
 			repeated, _, _, _ := server.startLocalLobby(host)
@@ -692,14 +692,14 @@ func TestLobbyResultsClearStartedFlagOnlyAfterEveryPlayerReports(t *testing.T) {
 	server.createLocalLobby(host, []byte("NAME=host\nMINSIZE=2\nMAXSIZE=9\nSYSFLAGS=4160\n\x00"))
 	server.joinLocalLobby(guest)
 	started, _, _, ok := server.startLocalLobby(host)
-	if !ok || payloadField(started, "SYSFLAGS") != "528448" {
+	if !ok || getPayloadField(started, "SYSFLAGS") != "528448" {
 		t.Fatalf("started game = %q, ok=%v", started, ok)
 	}
 	for _, reporter := range []*serviceClient{nil, outsider, guest, guest} {
 		if _, _, _, complete := server.recordLocalLobbyResult(reporter); complete {
 			t.Fatalf("result barrier completed early for reporter %p", reporter)
 		}
-		if payloadField(server.lobby.request, "SYSFLAGS") != "528448" {
+		if getPayloadField(server.lobby.request, "SYSFLAGS") != "528448" {
 			t.Fatal("incomplete result barrier cleared the started flag")
 		}
 	}
@@ -707,8 +707,8 @@ func TestLobbyResultsClearStartedFlagOnlyAfterEveryPlayerReports(t *testing.T) {
 	if !complete || len(players) != 2 || len(clients) != 2 {
 		t.Fatalf("completed result barrier: complete=%v players=%d clients=%d", complete, len(players), len(clients))
 	}
-	if payloadField(ended, "SYSFLAGS") != "4160" {
-		t.Fatalf("ended SYSFLAGS=%q, want 4160", payloadField(ended, "SYSFLAGS"))
+	if getPayloadField(ended, "SYSFLAGS") != "4160" {
+		t.Fatalf("ended SYSFLAGS=%q, want 4160", getPayloadField(ended, "SYSFLAGS"))
 	}
 	if _, _, _, complete = server.recordLocalLobbyResult(host); complete {
 		t.Fatal("duplicate result completed the already-ended barrier")
@@ -719,11 +719,11 @@ func TestMultiplayerGameRecordPlacesRecipientFirstWithoutChangingHost(t *testing
 	request := []byte("NAME=host\nMINSIZE=2\nMAXSIZE=9\nCUSTFLAGS=413278208\nSYSFLAGS=64\n\x00")
 	host := &serviceClient{personaID: 1, personaName: "host", address: "192.168.1.10"}
 	guest := &serviceClient{personaID: 2, personaName: "guest", address: "192.168.1.11"}
-	ordered := localPlayerFirst([]*serviceClient{host, guest}, guest)
+	ordered := getLocalPlayerFirst([]*serviceClient{host, guest}, guest)
 	if len(ordered) != 2 || ordered[0] != guest || ordered[1] != host {
 		t.Fatalf("recipient roster order = %#v", ordered)
 	}
-	record := localMultiplayerGameRecord(request, host, ordered, "127.0.0.1")
+	record := getLocalMultiplayerGameRecord(request, host, ordered, "127.0.0.1")
 	for _, field := range []string{
 		"HOST=host\n",
 		"GPSHOST=host\n",
@@ -767,26 +767,26 @@ func TestLobbyPresencePreservesSelfBetweenFrames(t *testing.T) {
 					switch frame.Type {
 					case "+who":
 						// Retail copies +who directly into its local user record.
-						self = payloadField(frame.Payload, "N")
+						self = getPayloadField(frame.Payload, "N")
 						selfUpdates++
-						if payloadField(frame.Payload, "I") != strconv.Itoa(recipient.personaID) {
+						if getPayloadField(frame.Payload, "I") != strconv.Itoa(recipient.personaID) {
 							t.Errorf("+who changed local persona ID: %q", frame.Payload)
 						}
 					case "+usr":
-						remote := payloadField(frame.Payload, "N")
+						remote := getPayloadField(frame.Payload, "N")
 						if remote == self || seenRemote[remote] {
 							t.Errorf("invalid/duplicate remote presence: %q", frame.Payload)
 						}
 						// +usr only copies into self when its F self bit is set.
-						if payloadField(frame.Payload, "F") != "" {
+						if getPayloadField(frame.Payload, "F") != "" {
 							t.Errorf("remote presence has unexpected flags: %q", frame.Payload)
 						}
 						seenRemote[remote] = true
 						remoteUpdates++
 					case "+mgm":
 						rosterUpdates++
-						if payloadField(frame.Payload, "OPPO0") != self ||
-							payloadField(frame.Payload, "COUNT") != strconv.Itoa(count) {
+						if getPayloadField(frame.Payload, "OPPO0") != self ||
+							getPayloadField(frame.Payload, "COUNT") != strconv.Itoa(count) {
 							t.Errorf("roster disagrees with local user: %q", frame.Payload)
 						}
 						for _, player := range players[:count] {
@@ -803,7 +803,7 @@ func TestLobbyPresencePreservesSelfBetweenFrames(t *testing.T) {
 					}
 					return nil
 				}
-				game := localMultiplayerGameRecord(request, players[0], players[:count], server.config.AdvertiseAddress)
+				game := getLocalMultiplayerGameRecord(request, players[0], players[:count], server.config.AdvertiseAddress)
 				server.notifyLobby(game, players[:count], []*serviceClient{recipient}, true, false)
 				if selfUpdates != 1 || remoteUpdates != count-1 || rosterUpdates != 1 {
 					t.Errorf("notification counts: self=%d remote=%d roster=%d", selfUpdates, remoteUpdates, rosterUpdates)
@@ -843,7 +843,7 @@ func TestNotifyLobbyPersonalizesRosterForEachClient(t *testing.T) {
 		},
 	}
 	players := []*serviceClient{host, guest}
-	game := localMultiplayerGameRecord(request, host, players, "127.0.0.1")
+	game := getLocalMultiplayerGameRecord(request, host, players, "127.0.0.1")
 	server.notifyLobby(game, players, players, false, true)
 	if len(hostFrames) != 2 || len(guestFrames) != 2 {
 		t.Fatalf("notification counts = host %d, guest %d", len(hostFrames), len(guestFrames))
@@ -906,7 +906,7 @@ func TestNotifyLobbyPersonalizesRosterForEachClient(t *testing.T) {
 			if frames[i].Type != kind || frames[i].ID != 0 || !bytes.Equal(frames[i].Payload, frames[0].Payload) {
 				t.Fatalf("%s start notification %d = %#v, want %s with identical record", name, i, frames[i], kind)
 			}
-			if payloadField(frames[i].Payload, "SYSFLAGS") != "524352" {
+			if getPayloadField(frames[i].Payload, "SYSFLAGS") != "524352" {
 				t.Fatalf("%s start notification %s lacks started flag: %q", name, kind, frames[i].Payload)
 			}
 		}
@@ -980,8 +980,8 @@ func TestAcceptedClientAddressPreservesSpecificLoopbackAlias(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := acceptedClientAddress(test.current, test.announced); got != test.want {
-				t.Fatalf("acceptedClientAddress(%q, %q) = %q, want %q",
+			if got := getAcceptedClientAddress(test.current, test.announced); got != test.want {
+				t.Fatalf("getAcceptedClientAddress(%q, %q) = %q, want %q",
 					test.current, test.announced, got, test.want)
 			}
 		})
@@ -1037,8 +1037,8 @@ func TestRemoteClientGamePortRecognizesPatchedRange(t *testing.T) {
 		{remote: &net.TCPAddr{IP: net.ParseIP("192.168.1.25"), Port: 4096}, want: localPeerGamePort},
 		{remote: nil, want: localPeerGamePort},
 	} {
-		if got := remoteClientGamePort(test.remote); got != test.want {
-			t.Fatalf("remoteClientGamePort(%v) = %d, want %d", test.remote, got, test.want)
+		if got := getRemoteClientGamePort(test.remote); got != test.want {
+			t.Fatalf("getRemoteClientGamePort(%v) = %d, want %d", test.remote, got, test.want)
 		}
 	}
 	for input, want := range map[string]int{
@@ -1048,8 +1048,8 @@ func TestRemoteClientGamePortRecognizesPatchedRange(t *testing.T) {
 		"4096": 0,
 		"bad":  0,
 	} {
-		if got := instanceGamePort(input); got != want {
-			t.Fatalf("instanceGamePort(%q) = %d, want %d", input, got, want)
+		if got := getInstanceGamePort(input); got != want {
+			t.Fatalf("getInstanceGamePort(%q) = %d, want %d", input, got, want)
 		}
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/local/reorigin-hotpursuit/legacytls"
+	"github.com/local/reorigin-burnout-paradise/legacytls"
 )
 
 func TestGenerateDirtySDK64SelfSigned(t *testing.T) {

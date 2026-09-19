@@ -25,31 +25,39 @@ type Frame struct {
 }
 
 func Read(r io.Reader) (Frame, error) {
+
 	var header [HeaderSize]byte
+
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return Frame{}, err
 	}
 
 	length := binary.BigEndian.Uint32(header[8:12])
+
 	if length < HeaderSize || length > MaxFrameSize {
 		return Frame{}, fmt.Errorf("%w: length %d", ErrInvalidFrame, length)
 	}
 
 	payload := make([]byte, int(length)-HeaderSize)
+
 	if _, err := io.ReadFull(r, payload); err != nil {
 		return Frame{}, err
 	}
+
 	return Frame{
 		Type:    string(header[0:4]),
 		ID:      binary.BigEndian.Uint32(header[4:8]),
 		Payload: payload,
 	}, nil
+
 }
 
 func Write(w io.Writer, frame Frame) error {
+
 	if len(frame.Type) != 4 {
 		return fmt.Errorf("%w: type must contain four bytes", ErrInvalidFrame)
 	}
+
 	if len(frame.Payload)+HeaderSize > MaxFrameSize {
 		return fmt.Errorf("%w: payload too large", ErrInvalidFrame)
 	}
@@ -61,14 +69,20 @@ func Write(w io.Writer, frame Frame) error {
 	copy(packet[12:], frame.Payload)
 
 	for len(packet) != 0 {
+
 		n, err := w.Write(packet)
 		if err != nil {
 			return err
 		}
+
 		if n == 0 {
 			return io.ErrShortWrite
 		}
+
 		packet = packet[n:]
+
 	}
+
 	return nil
+
 }
